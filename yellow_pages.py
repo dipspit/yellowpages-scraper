@@ -1,19 +1,18 @@
 #!/usr/bin/env python3
 
 import requests
-import unicodecsv as csv
-import argparse
 import urllib3
-import os
 import sys
-import os.path
+import os
+import re
 from os import path
 from lxml import html
 from openpyxl import Workbook
+from openpyxl.styles import PatternFill, colors, Font
 urllib3.disable_warnings()
 
 # build parser
-def parse(keyword, city, state):
+def parse():
     if response.status_code == 200:
         XPATH_LISTINGS = "//div[@class='search-results organic']//div[@class='v-card']"
         listings = parser.xpath(XPATH_LISTINGS)
@@ -27,54 +26,64 @@ def parse(keyword, city, state):
             XPATH_STREET = ".//div[@class='street-address']//text()"
             XPATH_CATEGORIES = ".//div[@class='info']//div[contains(@class,'info-section')]//div[@class='categories']//text()"
             XPATH_WEBSITE = ".//div[@class='info']//div[contains(@class,'info-section')]//div[@class='links']//a[contains(@class,'website')]/@href"
+            XPATH_LOCALITY = ".//div[@class='info']//div[contains(@class,'info-section')]//div[@class='locality']//text()"
             
             raw_business_name = results.xpath(XPATH_BUSINESS_NAME)
             raw_business_telephone = results.xpath(XPATH_TELEPHONE)
             raw_categories = results.xpath(XPATH_CATEGORIES)
             raw_website = results.xpath(XPATH_WEBSITE)
             raw_street = results.xpath(XPATH_STREET)
+            raw_locality = results.xpath(XPATH_LOCALITY)
 
             business_name = ''.join(raw_business_name).strip() if raw_business_name else None
             telephone = ''.join(raw_business_telephone).strip() if raw_business_telephone else None
             category = ','.join(raw_categories).strip() if raw_categories else None
             website = ''.join(raw_website).strip() if raw_website else None
             street = ''.join(raw_street).strip() if raw_street else None
+            locality = ''.join(raw_locality).strip() if raw_locality else None
 
             business_details = {
-                'a': business_name,
-                'b': telephone,
-                'c': category,
-                'd': website,
-                'e': street
+                'b': business_name,
+                'c': telephone,
+                'a': category,
+                'f': website,
+                'd': street,
+                'e': locality
             }
             scraped_results.append(business_details)
+
         return scraped_results
 
 def clear_it():
-    print('  retrieving:                                                                   ', end='\r', flush=True)
+    print('  retrieving:                                   ', end='\r', flush=True)
 
 # check if excel file already exists and warn the user
 file_exists = path.exists('output.xlsx')
 
 if file_exists == True:
-    uhoh = input("output.xlsx already exists! \ntype 'y' to delete and continue or press any other key to abort : ")
+    uhoh = input("\noutput.xlsx already exists! \ntype 'y' to delete and continue or press any other key to abort : ")
     if uhoh == 'y':
         os.remove('output.xlsx')
-        print('deleted, continuing...')
+        print('\ndeleted, continuing...\n')
     else:
-        print('aborting.')
+        print('\naborting.')
         sys.exit()
 
 # open workbook,sheet
 book = Workbook()
 sheet = book.active
 
+# apply some styling
+#for cell in sheet[1]:
+#    cell.font = Font(color="00ffffff")
+#    cell.fill = PatternFill(fill_type='solid', bgColor=colors.BLACK)
 # set the column headers
-sheet.cell(row=1, column=1).value = 'business name'
-sheet.cell(row=1, column=2).value = 'phone number'
-sheet.cell(row=1, column=3).value = 'category'
-sheet.cell(row=1, column=4).value = 'website'
-sheet.cell(row=1, column=5).value = 'address'
+sheet.cell(row=1, column=2).value = 'Business Name'
+sheet.cell(row=1, column=3).value = 'Phone Number'
+sheet.cell(row=1, column=1).value = 'Category'
+sheet.cell(row=1, column=6).value = 'Website'
+sheet.cell(row=1, column=4).value = 'Address'
+sheet.cell(row=1, column=5).value = 'Locality'
 
 # get user input for city / state, abort if user inputs non-conforming state
 unencoded_city = input("what's your town? : ")
@@ -98,6 +107,8 @@ headers = {'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,imag
            'Upgrade-Insecure-Requests': '1',
            'User-Agent': 'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/64.0.3282.140 Safari/537.36'
         }
+
+print('\nbegining... this may take some time to complete.\n')
 
 # pull keywords page
 url = 'http://www.yellowpages.com/{0}-{1}'.format(city, state)
@@ -126,11 +137,12 @@ for i in encode_keywords:
         base_url = "https://www.yellowpages.com"
         parser.make_links_absolute(base_url)
 
+
         '''determine number of pages
         XPATH_RESULTS = "//div[@class='pagination']//p/child::text()[1]"
         results = parser.xpath(XPATH_RESULTS)
-        pages = int(round(int(''.join(results)) / int(30)))'''
-        '''
+        pages = int(round(int(''.join(results)) / int(30)))
+        
         # iterate through the pages
         if pages <= 1:
             parse(keyword, city, state)
@@ -138,11 +150,11 @@ for i in encode_keywords:
             while pages > 0:
                 url = 'http://www.yellowpages.com/search?search_terms={0}&geo_location_terms={1}%2C+{2}&page{3}'.format(keyword, city, state, pages)
                 parse(keyword, city, state)
-                pages -= 1
-        '''
+                pages -= 1'''
+
         clear_it()
 
-        scraped_data = parse(keyword, city, state)
+        scraped_data = parse()
         
         rows = scraped_data
         for row in rows:
