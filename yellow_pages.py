@@ -4,7 +4,6 @@ import requests
 import urllib3
 import sys
 import os
-import re
 from os import path
 from lxml import html
 from openpyxl import Workbook
@@ -12,7 +11,7 @@ from openpyxl.styles import PatternFill, colors, Font
 urllib3.disable_warnings()
 
 # build parser
-def parse():
+def parse(business_name_list):
     if response.status_code == 200:
         XPATH_LISTINGS = "//div[@class='search-results organic']//div[@class='v-card']"
         listings = parser.xpath(XPATH_LISTINGS)
@@ -42,20 +41,21 @@ def parse():
             street = ''.join(raw_street).strip() if raw_street else None
             locality = ''.join(raw_locality).strip() if raw_locality else None
 
-            business_details = {
-                'b': business_name,
-                'c': telephone,
-                'a': category,
-                'f': website,
-                'd': street,
-                'e': locality
-            }
-            scraped_results.append(business_details)
-
+            if business_name in business_name_list: # this doesn't work as intended
+                pass
+            else:
+                business_details = {
+                    'a': category,
+                    'b': business_name,
+                    'c': telephone,
+                    'd': street,
+                    'e': locality,
+                    'f': website
+                }
+                business_name_list.append(business_details)
+                scraped_results.append(business_details)
+            
         return scraped_results
-
-def clear_it():
-    print('  retrieving:                                   ', end='\r', flush=True)
 
 # check if excel file already exists and warn the user
 file_exists = path.exists('output.xlsx')
@@ -78,12 +78,13 @@ sheet = book.active
 #    cell.font = Font(color="00ffffff")
 #    cell.fill = PatternFill(fill_type='solid', bgColor=colors.BLACK)
 # set the column headers
+sheet.cell(row=1, column=1).value = 'Category'
 sheet.cell(row=1, column=2).value = 'Business Name'
 sheet.cell(row=1, column=3).value = 'Phone Number'
-sheet.cell(row=1, column=1).value = 'Category'
-sheet.cell(row=1, column=6).value = 'Website'
 sheet.cell(row=1, column=4).value = 'Address'
 sheet.cell(row=1, column=5).value = 'Locality'
+sheet.cell(row=1, column=6).value = 'Website'
+
 
 # get user input for city / state, abort if user inputs non-conforming state
 unencoded_city = input("what's your town? : ")
@@ -91,6 +92,7 @@ state = input("and your two letter state name? : ")
 if len(state) > 2:
     print('state cannot have more than two letters')
     sys.exit()
+
 
 # fix spaces in city names
 if " " in unencoded_city:
@@ -101,71 +103,110 @@ else:
 headers = {'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,image/apng,*/*;q=0.8',
            'Accept-Encoding': 'gzip, deflate, br',
            'Accept-Language': 'en-GB,en;q=0.9,en-US;q=0.8,ml;q=0.7',
-            'Cache-Control': 'max-age=0',
+           'Cache-Control': 'max-age=0',
            'Connection': 'keep-alive',
            'Host': 'www.yellowpages.com',
            'Upgrade-Insecure-Requests': '1',
            'User-Agent': 'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/64.0.3282.140 Safari/537.36'
         }
 
-print('\nbegining... this may take some time to complete.\n')
+print('\nbegining... this may take some time to complete.')
 
 # pull keywords page
 url = 'http://www.yellowpages.com/{0}-{1}'.format(city, state)
-print('retrieving keywords', end="\r", flush=True)
-clear_it()
+print('retrieving keywords')
 response = requests.get(url, verify=False)
-print('got response', end="\r", flush=True)
-clear_it()
-parser = html.fromstring(response.text)
-base_url = "https://www.yellowpages.com"
-parser.make_links_absolute(base_url)
+if response.status_code == 200:
+    print('got response')
+    parser = html.fromstring(response.text)
 
-XPATH_KEYWORDS = "//div[@class='row expand-area']//a//text()"
-keywords = parser.xpath(XPATH_KEYWORDS)
-encode_keywords = [item.replace(' ', '+') for item in keywords]
-print('got keywords', end="\r", flush=True)
+    XPATH_KEYWORDS = "//div[@class='row expand-area']//a//text()"
+    keywords = parser.xpath(XPATH_KEYWORDS)
+    encode_keywords = [item.replace(' ', '+') for item in keywords]
+    keyword_count = len(keywords)
+    print('retrieved %s keywords' % (keyword_count))
 
-for i in encode_keywords:
-    keyword = i
-    try:
-        url = 'http://www.yellowpages.com/search?search_terms={0}&geo_location_terms={1}%2C+{2}'.format(keyword, city, state)
-        unencode_keyword = i.replace('+',' ')
-        print("  retrieving:", unencode_keyword, end="\r", flush=True)
-        response = requests.get(url, verify=False)
-        parser = html.fromstring(response.text)
-        base_url = "https://www.yellowpages.com"
-        parser.make_links_absolute(base_url)
+    print('\n')
+
+    business_name_list = []
+
+    for i in encode_keywords:
+        keyword = i
+
+        try:
+
+            url = 'http://www.yellowpages.com/search?search_terms={0}&geo_location_terms={1}%2C+{2}'.format(keyword, city, state)
+            unencode_keyword = i.replace('+',' ')
+            print("  retrieving:", unencode_keyword)
+            print("  --------------------------------")
+            response = requests.get(url, verify=False)
+            parser = html.fromstring(response.text)
+            
+            # grab page count
+            XPATH_RESULTS = "//div[@class='pagination']//p/child::text()[1]"
+            results = parser.xpath(XPATH_RESULTS)
+            print("  found: %s results" % (results[0]))
+            count_results = int(''.join(results))
+            max_per_pg = int(30)
+            pages = -(-count_results // max_per_pg)
+            print("  total pages:", pages)
+
+            # iterate them
+            if pages == 1:
+                url = 'http://www.yellowpages.com/search?search_terms={0}&geo_location_terms={1}%2C+{2}'.format(keyword, city, state)
+                response = requests.get(url, verify=False)
+
+                #scrape and insert into excel sheet
 
 
-        '''determine number of pages
-        XPATH_RESULTS = "//div[@class='pagination']//p/child::text()[1]"
-        results = parser.xpath(XPATH_RESULTS)
-        pages = int(round(int(''.join(results)) / int(30)))
+                scraped_data = parse(business_name_list)
+                rows = scraped_data
+                for row in rows:
+                    sheet.append(row)
+                print('  grabbed page')
+            
+            else:
+                while pages > 1:
+                    print('  grabbing page: ', pages)
+                    url = 'http://www.yellowpages.com/search?search_terms={0}&geo_location_terms={1}%2C+{2}&page={3}'.format(keyword, city, state, pages)
+                    response = requests.get(url, verify=False)
+
+                    #scrape and insert into excel sheet
+                    scraped_data = parse(business_name_list)
+                    rows = scraped_data
+                    for row in rows:
+                        sheet.append(row)
+                    
+                    # count down page
+                    pages -= 1
+
+                    if pages == 1:
+                        print('  grabbing page: ', pages)
+                        url = 'http://www.yellowpages.com/search?search_terms={0}&geo_location_terms={1}%2C+{2}'.format(keyword, city, state)
+                        response = requests.get(url, verify=False)
+
+                        #scrape and insert into excel sheet
+                        scraped_data = parse(business_name_list)
+                        rows = scraped_data
+                        for row in rows:
+                            sheet.append(row)
+            
+            print('\n')
+
+        except TypeError:
+            print('no results', end='\r', flush=True)
         
-        # iterate through the pages
-        if pages <= 1:
-            parse(keyword, city, state)
-        else:
-            while pages > 0:
-                url = 'http://www.yellowpages.com/search?search_terms={0}&geo_location_terms={1}%2C+{2}&page{3}'.format(keyword, city, state, pages)
-                parse(keyword, city, state)
-                pages -= 1'''
+        except Exception as e:
+            print(e)
 
-        clear_it()
+else:
+    print('error: response code: %s' % (response.status_code))
 
-        scraped_data = parse()
-        
-        rows = scraped_data
-        for row in rows:
-            sheet.append(row)
-
-
-    except TypeError:
-        print('no results', end='\r', flush=True)
-    
-    except Exception as e:
-        print(e)
-
+business_name_list.clear()
 print('saving to excel file')
 book.save('output.xlsx')
+
+'''
+# roadmap
+employ duplicate skipping <- working on it
+'''
